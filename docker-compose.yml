@@ -47,7 +47,7 @@ services:
   # ── Frontend — React + nginx (also proxies /api/* → backend) ─────────────────
   frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: devops-agent-frontend
     restart: unless-stopped
