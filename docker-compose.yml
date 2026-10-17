@@ -1,0 +1,79 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DevOps Agent — EC2 Production
+#
+#  On EC2:
+#    cp .env.example .env        # no changes needed for basic deploy
+#    docker compose up -d --build
+#    Open  http://<EC2-PUBLIC-IP>
+#
+#  Security Group (inbound):
+#    Port 80   — 0.0.0.0/0   (HTTP, frontend)
+#    Port 22   — your IP     (SSH)
+#    Port 8000 — NOT needed  (backend is internal only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Backend — FastAPI ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-agent-backend
+    restart: unless-stopped
+    expose:
+      - "${BACKEND_PORT:-8000}"       # internal only — not reachable from internet
+    environment:
+      - PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-1}
+      - PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
+    volumes:
+      - ssh_tmp:/tmp                  # temp dir for SSH key files
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-8000}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+    networks:
+      - agent-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Frontend — React + nginx (also proxies /api/* → backend) ─────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devops-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"     # only public-facing port
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - agent-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  agent-net:
+    driver: bridge
+
+volumes:
+  ssh_tmp:
+    driver: local
